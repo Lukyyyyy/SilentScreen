@@ -1,0 +1,86 @@
+name: Build and release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: windows
+            arch: x64
+            spec: SilentScreen.spec
+            asset: SilentScreen-windows-x64.exe
+          - os: macos-15
+            platform: macos
+            arch: arm64
+            spec: SilentScreenMac.spec
+            asset: SilentScreen-macos-arm64.app.zip
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.arch }}
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt 'pyinstaller>=6,<7'
+      - name: Check imports and syntax
+        run: |
+          python -m compileall -q . -x '(^|/)(build|dist)/'
+          python -c "import app, capture, hotkey, settings, ui"
+      - name: Build application
+        run: python -m PyInstaller --noconfirm --clean '${{ matrix.spec }}'
+      - name: Package Windows application
+        if: runner.os == 'Windows'
+        run: mv dist/SilentScreen.exe 'dist/${{ matrix.asset }}'
+      - name: Verify and package macOS application
+        if: runner.os == 'macOS'
+        run: |
+          test "$(lipo -archs dist/SilentScreen.app/Contents/MacOS/SilentScreen)" = arm64
+          codesign --verify --deep --strict dist/SilentScreen.app
+          ditto -c -k --sequesterRsrc --keepParent dist/SilentScreen.app 'dist/${{ matrix.asset }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: ${{ matrix.platform }}/dist/${{ matrix.asset }}
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test -s release/SilentScreen-windows-x64.exe
+          test -s release/SilentScreen-macos-arm64.app.zip
+          cd release
+          sha256sum SilentScreen-* > SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "SilentScreen $RELEASE_TAG" --notes-file ../RELEASE_NOTES.md
+          gh release upload "$RELEASE_TAG" SilentScreen-windows-x64.exe SilentScreen-macos-arm64.app.zip SHA256SUMS.txt
+          gh release edit "$RELEASE_TAG" --draft=false --latest

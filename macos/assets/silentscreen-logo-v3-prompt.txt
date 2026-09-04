@@ -1,0 +1,4 @@
+Generation mode: built-in image_gen
+Edit target: assets/silentscreen-logo-v2.png
+
+Use case: precise-object-edit. Input image is the edit target: Silent Screen logo v2. Change ONLY the color of the bright blue rounded-square tile to a calm, substantially desaturated slate blue-gray, approximately #667889. Keep the white symbol and light neutral outer background unchanged. Keep EXACTLY the same symbol geometry, corner radii, dimensions, positions, spacing, silhouette and composition. Flat nearly solid muted color, no added texture or dimensional effects. The result should feel understated, quiet and refined, not vivid, saturated or electric. No other changes, no text, no new elements.
