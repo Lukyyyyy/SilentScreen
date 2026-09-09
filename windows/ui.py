@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QKeySequenceEdit,
+    QLabel,
     QLineEdit,
     QMenu,
-    QMessageBox,
     QPushButton,
     QSystemTrayIcon,
     QVBoxLayout,
@@ -23,14 +23,21 @@ from settings import AppSettings, ensure_writable_directory
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, settings: AppSettings, parent=None) -> None:
+    def __init__(
+        self,
+        settings: AppSettings,
+        issues: tuple[str, ...] = (),
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.setModal(True)
-        self.resize(420, 140)
+        self.resize(420, 180)
 
         self._hotkey_edit = QKeySequenceEdit(QKeySequence(settings.hotkey))
         self._path_edit = QLineEdit(settings.save_dir)
+        self._status_label = QLabel("\n".join(issues) if issues else "运行正常")
+        self._status_label.setWordWrap(True)
         self._result: AppSettings | None = None
 
         browse_button = QPushButton("浏览...")
@@ -41,6 +48,7 @@ class SettingsDialog(QDialog):
         path_row.addWidget(browse_button)
 
         form = QFormLayout()
+        form.addRow("运行状态", self._status_label)
         form.addRow("快捷键", self._hotkey_edit)
         form.addRow("保存路径", path_row)
 
@@ -93,7 +101,7 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def _show_error(self, message: str) -> None:
-        QMessageBox.warning(self, "设置无效", message)
+        self._status_label.setText(f"设置无效：{message}")
 
 
 class TrayController:
@@ -119,12 +127,6 @@ class TrayController:
 
     def show(self) -> None:
         self.tray.show()
-
-    def show_info(self, title: str, message: str) -> None:
-        self.tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 4000)
-
-    def show_error(self, title: str, message: str) -> None:
-        self.tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Warning, 4000)
 
     @staticmethod
     def open_path(path: str | os.PathLike[str]) -> None:

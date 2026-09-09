@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
-    QMessageBox,
     QPushButton,
     QSystemTrayIcon,
     QVBoxLayout,
@@ -24,7 +23,12 @@ from settings import AppSettings, ensure_writable_directory
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, settings: AppSettings, parent=None) -> None:
+    def __init__(
+        self,
+        settings: AppSettings,
+        issues: tuple[str, ...] = (),
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.setModal(True)
@@ -36,6 +40,7 @@ class SettingsDialog(QDialog):
         # 因此保持单行、由对话框自适应宽度。
         self._hint = QLabel("在输入框中直接按下想要的组合键即可。")
         self._hint.setStyleSheet("color: #666;")
+        self._status_label = QLabel("；".join(issues) if issues else "运行正常")
         self._result: AppSettings | None = None
 
         browse_button = QPushButton("浏览...")
@@ -46,6 +51,7 @@ class SettingsDialog(QDialog):
         path_row.addWidget(browse_button)
 
         form = QFormLayout()
+        form.addRow("运行状态", self._status_label)
         form.addRow("快捷键", self._hotkey_edit)
         form.addRow("保存路径", path_row)
         form.addRow("", self._hint)
@@ -98,7 +104,7 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def _show_error(self, message: str) -> None:
-        QMessageBox.warning(self, "设置无效", message)
+        self._status_label.setText(f"设置无效：{message}")
 
 
 class TrayController:
@@ -124,12 +130,6 @@ class TrayController:
 
     def show(self) -> None:
         self.tray.show()
-
-    def show_info(self, title: str, message: str) -> None:
-        self.tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 4000)
-
-    def show_error(self, title: str, message: str) -> None:
-        self.tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Warning, 4000)
 
     @staticmethod
     def open_path(path: str) -> None:

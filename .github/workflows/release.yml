@@ -41,8 +41,22 @@ jobs:
         run: |
           python -m compileall -q . -x '(^|/)(build|dist)/'
           python -c "import app, capture, hotkey, settings, ui"
+          python -m unittest -q
       - name: Build application
         run: python -m PyInstaller --noconfirm --clean '${{ matrix.spec }}'
+      - name: Smoke test Windows application
+        if: runner.os == 'Windows'
+        run: |
+          python - <<'PY'
+          import subprocess
+          import time
+
+          process = subprocess.Popen(['dist/SilentScreen.exe'])
+          time.sleep(10)
+          assert process.poll() is None, f'SilentScreen exited with code {process.returncode}'
+          process.terminate()
+          process.wait(timeout=10)
+          PY
       - name: Package Windows application
         if: runner.os == 'Windows'
         run: mv dist/SilentScreen.exe 'dist/${{ matrix.asset }}'

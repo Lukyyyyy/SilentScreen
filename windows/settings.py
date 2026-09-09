@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -19,7 +21,7 @@ class AppSettings:
 
 
 def _local_appdata_dir() -> Path:
-    return Path.home() / "AppData" / "Local" / APP_NAME
+    return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / APP_NAME
 
 
 def get_app_dir() -> Path:
@@ -43,9 +45,7 @@ def get_settings_file() -> Path:
 
 
 def get_default_save_dir() -> Path:
-    path = Path.home() / "Pictures" / "Screenshots"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return Path.home() / "Pictures" / "Screenshots"
 
 
 def default_settings() -> AppSettings:
@@ -56,21 +56,27 @@ def default_settings() -> AppSettings:
 
 
 def load_settings() -> AppSettings:
-    settings_file = get_settings_file()
-    if not settings_file.exists():
-        settings = default_settings()
-        save_settings(settings)
-        return settings
+    try:
+        settings_file = get_settings_file()
+        if not settings_file.exists():
+            settings = default_settings()
+            save_settings(settings)
+            return settings
 
-    data: dict[str, Any] = json.loads(settings_file.read_text(encoding="utf-8"))
-    defaults = default_settings()
-    return AppSettings(
-        hotkey=str(data.get("hotkey", defaults.hotkey)),
-        save_dir=str(data.get("save_dir", defaults.save_dir)),
-        image_format=str(data.get("image_format", defaults.image_format)).lower(),
-        filename_pattern=str(data.get("filename_pattern", defaults.filename_pattern)),
-        monitor_mode=str(data.get("monitor_mode", defaults.monitor_mode)),
-    )
+        data: dict[str, Any] = json.loads(settings_file.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("配置文件内容必须是 JSON 对象。")
+        defaults = default_settings()
+        return AppSettings(
+            hotkey=str(data.get("hotkey", defaults.hotkey)),
+            save_dir=str(data.get("save_dir", defaults.save_dir)),
+            image_format=str(data.get("image_format", defaults.image_format)).lower(),
+            filename_pattern=str(data.get("filename_pattern", defaults.filename_pattern)),
+            monitor_mode=str(data.get("monitor_mode", defaults.monitor_mode)),
+        )
+    except (OSError, ValueError, TypeError):
+        logging.getLogger("silent_screen").exception("Failed to load settings; using defaults")
+        return default_settings()
 
 
 def save_settings(settings: AppSettings) -> None:

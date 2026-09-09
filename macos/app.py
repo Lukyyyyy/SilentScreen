@@ -28,7 +28,7 @@ def _hide_dock_icon() -> None:
 
 
 class SilentScreenApp(QObject):
-    capture_failed = Signal(str, str)
+    capture_status = Signal(str)
 
     def __init__(self, qt_app: QApplication) -> None:
         super().__init__(qt_app)
@@ -38,6 +38,7 @@ class SilentScreenApp(QObject):
 
         self.logger = self._configure_logging()
         self.settings = load_settings()
+        self._issues: dict[str, str] = {}
         self.logger.info(
             "Loaded settings: hotkey=%s save_dir=%s",
             self.settings.hotkey,
@@ -52,7 +53,7 @@ class SilentScreenApp(QObject):
         self.hotkeys.activated.connect(self._capture_and_save)
 
         self.tray = TrayController(tray_icon, qt_app)
-        self.capture_failed.connect(self.tray.show_error)
+        self.capture_status.connect(self._set_capture_status)
         self.tray.settings_action.triggered.connect(self.open_settings)
         self.tray.open_folder_action.triggered.connect(self.open_save_dir)
         self.tray.open_log_action.triggered.connect(self.open_log_file)
@@ -60,8 +61,8 @@ class SilentScreenApp(QObject):
 
     def start(self) -> None:
         self.logger.info("Application starting")
-        self._register_initial_hotkey()
         self.tray.show()
+        self._register_initial_hotkey()
 
     def _configure_logging(self) -> logging.Logger:
         logger = logging.getLogger("silent_screen")
@@ -79,11 +80,20 @@ class SilentScreenApp(QObject):
     def _register_initial_hotkey(self) -> None:
         try:
             handle = self.hotkeys.register_hotkey(self.settings.hotkey)
+            self._issues.pop("hotkey", None)
             self.logger.info("Registered hotkey: %s", handle.hotkey_str)
         except HotkeyError as exc:
             self.logger.exception("Failed to register initial hotkey")
-            self.tray.show_error("快捷键注册失败", str(exc))
-            raise
+            self._record_issue("hotkey", f"快捷键注册失败：{exc} 请更换快捷键。")
+
+    def _record_issue(self, key: str, message: str) -> None:
+        self._issues[key] = message
+
+    def _set_capture_status(self, message: str) -> None:
+        if message:
+            self._record_issue("capture", message)
+        else:
+            self._issues.pop("capture", None)
 
     def _capture_and_save(self, hotkey_str: str) -> None:
         self.logger.info("Hotkey triggered: %s", hotkey_str)
@@ -92,11 +102,12 @@ class SilentScreenApp(QObject):
             ensure_capture_permission(request=True)
         except PermissionError as exc:
             self.logger.warning("Screen capture permission unavailable: %s", exc)
-            self.tray.show_error("需要屏幕录制权限", str(exc))
+            self._record_issue("permission", f"需要屏幕录制权限：{exc}")
             return
+        self._issues.pop("permission", None)
         screen = self.qt_app.screenAt(QCursor.pos()) or self.qt_app.primaryScreen()
         if screen is None:
-            self.tray.show_error("截图失败", "未找到可用屏幕。")
+            self._record_issue("capture", "截图失败：未找到可用屏幕。")
             return
         # 在快捷键触发时固定屏幕范围，避免后台线程启动后鼠标已移到另一屏。
         screen_rect = screen.geometry().getRect()
@@ -116,24 +127,18 @@ class SilentScreenApp(QObject):
                 screen_rect=screen_rect,
             )
             self.logger.info("Fullscreen screenshot saved: %s", saved_path)
+            self.capture_status.emit("")
         except Exception as exc:
             self.logger.exception("Failed to capture fullscreen screenshot")
-            self.capture_failed.emit("截图失败", str(exc))
+            self.capture_status.emit(f"截图失败：{exc}")
 
     def open_settings(self) -> None:
-        dialog = SettingsDialog(self.settings)
+        dialog = SettingsDialog(self.settings, tuple(self._issues.values()))
         # 释放 Carbon 全局快捷键，让输入框也能收到当前正在使用的组合键。
         self.hotkeys.unregister_hotkey()
-        try:
-            try:
-                result = dialog.exec()
-            finally:
-                self.hotkeys.register_hotkey(self.settings.hotkey)
-        except HotkeyError as exc:
-            self.logger.exception("Failed to restore hotkey after settings")
-            self.tray.show_error("恢复快捷键失败", str(exc))
-            return
+        result = dialog.exec()
         if result != SettingsDialog.DialogCode.Accepted:
+            self._register_initial_hotkey()
             return
 
         new_settings = dialog.result_settings
@@ -144,23 +149,37 @@ class SilentScreenApp(QObject):
 
         old_hotkey = self.settings.hotkey
         try:
-            if new_settings.hotkey != old_hotkey:
-                self.hotkeys.update_hotkey(new_settings.hotkey)
-                self.logger.info("Updated hotkey: %s -> %s", old_hotkey, new_settings.hotkey)
+            self.hotkeys.register_hotkey(new_settings.hotkey)
+            self._issues.pop("hotkey", None)
+            self.logger.info("Updated hotkey: %s -> %s", old_hotkey, new_settings.hotkey)
         except HotkeyError as exc:
             self.logger.exception("Failed to update hotkey")
-            self.tray.show_error("更新快捷键失败", str(exc))
+            self._register_initial_hotkey()
+            self._record_issue("hotkey", f"更新快捷键失败：{exc}")
             return
 
         self.settings = new_settings
-        save_settings(self.settings)
+        try:
+            save_settings(self.settings)
+            self._issues.pop("settings", None)
+        except OSError as exc:
+            self.logger.exception("Failed to save settings")
+            self._record_issue("settings", f"设置保存失败：{exc}")
         self.logger.info("Settings updated: save_dir=%s", self.settings.save_dir)
 
     def open_save_dir(self) -> None:
-        self.tray.open_path(self.settings.save_dir)
+        try:
+            self.tray.open_path(self.settings.save_dir)
+            self._issues.pop("save_dir", None)
+        except OSError as exc:
+            self._record_issue("save_dir", f"无法打开截图目录：{exc}")
 
     def open_log_file(self) -> None:
-        self.tray.open_path(str(get_log_file()))
+        try:
+            self.tray.open_path(str(get_log_file()))
+            self._issues.pop("log", None)
+        except OSError as exc:
+            self._record_issue("log", f"无法打开日志：{exc}")
 
     def quit(self) -> None:
         self.logger.info("Application exiting")
@@ -191,11 +210,21 @@ def main() -> int:
 
     app.setProperty("single_instance_guard", shared)
 
-    controller = SilentScreenApp(app)
     try:
+        controller = SilentScreenApp(app)
         controller.start()
-    except HotkeyError:
-        return 2
+    except Exception:
+        logging.getLogger("silent_screen").exception("Application failed to start")
+        return 3
+
+    def handle_uncaught_exception(exc_type, exc_value, exc_traceback) -> None:
+        controller.logger.error(
+            "Unhandled application error",
+            exc_info=(exc_type, exc_value, exc_traceback),
+        )
+        controller._record_issue("runtime", f"运行异常：{exc_value}")
+
+    sys.excepthook = handle_uncaught_exception
 
     return app.exec()
 
