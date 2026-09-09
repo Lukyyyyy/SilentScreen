@@ -1,22 +1,38 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
 from datetime import datetime
 from pathlib import Path
 
 import mss
 import mss.tools
 
+user32 = ctypes.windll.user32
 
-def capture_primary_screen():
+
+def cursor_screen_region() -> dict[str, int]:
+    cursor = ctypes.wintypes.POINT()
+    if not user32.GetCursorPos(ctypes.byref(cursor)):
+        raise RuntimeError("无法获取鼠标位置。")
+
     with mss.mss() as sct:
-        primary_monitor = sct.monitors[1]
-        return sct.grab(primary_monitor)
+        for monitor in sct.monitors[1:]:
+            if (
+                monitor["left"] <= cursor.x < monitor["left"] + monitor["width"]
+                and monitor["top"] <= cursor.y < monitor["top"] + monitor["height"]
+            ):
+                return dict(monitor)
+    raise RuntimeError("无法获取鼠标所在屏幕。")
+
+
+def capture_screen(region: dict[str, int]):
+    with mss.mss() as sct:
+        return sct.grab(region)
 
 
 def capture_screen_region(left: int, top: int, right: int, bottom: int):
-    region = normalize_region(left, top, right, bottom)
-    with mss.mss() as sct:
-        return sct.grab(region)
+    return capture_screen(normalize_region(left, top, right, bottom))
 
 
 def normalize_region(left: int, top: int, right: int, bottom: int) -> dict[str, int]:

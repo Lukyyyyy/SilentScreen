@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -32,10 +33,12 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.setModal(True)
-        self.resize(420, 180)
+        self.resize(460, 220)
 
         self._hotkey_edit = QKeySequenceEdit(QKeySequence(settings.hotkey))
         self._path_edit = QLineEdit(settings.save_dir)
+        self._region_capture_checkbox = QCheckBox("启用区域截图（两次长按鼠标左键）")
+        self._region_capture_checkbox.setChecked(settings.region_capture_enabled)
         self._status_label = QLabel("\n".join(issues) if issues else "运行正常")
         self._status_label.setWordWrap(True)
         self._result: AppSettings | None = None
@@ -51,6 +54,7 @@ class SettingsDialog(QDialog):
         form.addRow("运行状态", self._status_label)
         form.addRow("快捷键", self._hotkey_edit)
         form.addRow("保存路径", path_row)
+        form.addRow("区域截图", self._region_capture_checkbox)
 
         save_button = QPushButton("保存")
         save_button.clicked.connect(self._save)
@@ -97,6 +101,7 @@ class SettingsDialog(QDialog):
         self._result = AppSettings(
             hotkey=hotkey,
             save_dir=str(save_dir),
+            region_capture_enabled=self._region_capture_checkbox.isChecked(),
         )
         self.accept()
 

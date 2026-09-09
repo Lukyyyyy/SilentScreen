@@ -9,7 +9,7 @@ from PySide6.QtCore import QSharedMemory
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from capture import capture_primary_screen, capture_screen_region, save_image
+from capture import capture_screen, capture_screen_region, cursor_screen_region, save_image
 from hotkey import GlobalHotkeyManager, GlobalMouseSelectionManager, HotkeyError, MouseSelectionError
 from settings import AppSettings, get_log_file, load_settings, save_settings
 from ui import SettingsDialog, TrayController
@@ -44,7 +44,8 @@ class SilentScreenApp:
         self.logger.info("Application starting")
         self.tray.show()
         self._register_initial_hotkey()
-        self._start_mouse_selection()
+        if self.settings.region_capture_enabled:
+            self._start_mouse_selection()
 
     def _configure_logging(self) -> logging.Logger:
         logger = logging.getLogger("silent_screen")
@@ -97,9 +98,15 @@ class SilentScreenApp:
 
     def _capture_and_save(self, hotkey_str: str) -> None:
         self.logger.info("Hotkey triggered: %s", hotkey_str)
+        try:
+            region = cursor_screen_region()
+        except RuntimeError as exc:
+            self.logger.exception("Failed to locate cursor screen")
+            self._record_issue("capture_fullscreen", f"截图失败：{exc}")
+            return
         self._run_capture_job(
             job_name="fullscreen",
-            capture_func=capture_primary_screen,
+            capture_func=lambda: capture_screen(region),
         )
 
     def _capture_region_and_save(self, left: int, top: int, right: int, bottom: int) -> None:
@@ -168,7 +175,16 @@ class SilentScreenApp:
             self._record_issue("hotkey", f"更新快捷键失败：{exc}")
             return
 
+        region_capture_changed = (
+            new_settings.region_capture_enabled != self.settings.region_capture_enabled
+        )
         self.settings = new_settings
+        if region_capture_changed:
+            if self.settings.region_capture_enabled:
+                self._start_mouse_selection()
+            else:
+                self.mouse_selection.cleanup()
+                self._clear_issue("mouse")
         try:
             save_settings(self.settings)
             self._clear_issue("settings")
