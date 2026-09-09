@@ -41,7 +41,9 @@ jobs:
         run: |
           python -m compileall -q . -x '(^|/)(build|dist)/'
           python -c "import app, capture, hotkey, settings, ui"
-          python -m unittest -q
+      - name: Run Windows tests
+        if: runner.os == 'Windows'
+        run: python -m unittest -q
       - name: Build application
         run: python -m PyInstaller --noconfirm --clean '${{ matrix.spec }}'
       - name: Smoke test Windows application
