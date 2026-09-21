@@ -6,6 +6,9 @@ cd "$(dirname "$0")"
 if [ ! -d .venv ]; then
     python3 -m venv .venv
     .venv/bin/pip install --upgrade pip
+fi
+
+if ! .venv/bin/python -c "import PySide6, AppKit" 2>/dev/null; then
     .venv/bin/pip install -r requirements.txt
 fi
 

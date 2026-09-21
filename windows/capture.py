@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import mss
-import mss.tools
+from PySide6.QtGui import QImage
 
 user32 = ctypes.windll.user32
 
@@ -53,11 +53,15 @@ def save_image(image, save_dir: str | Path, filename_pattern: str) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     filename = datetime.now().strftime(filename_pattern)
-    destination = output_dir / filename
+    destination = (output_dir / filename).with_suffix(".jpg")
     if destination.exists():
         destination = output_dir / (
             f"{destination.stem}_{datetime.now().strftime('%f')}{destination.suffix}"
         )
 
-    mss.tools.to_png(image.rgb, image.size, output=str(destination))
+    width, height = image.size
+    if not QImage(
+        image.rgb, width, height, width * 3, QImage.Format.Format_RGB888
+    ).save(str(destination), "JPEG", 90):
+        raise RuntimeError("JPEG 截图保存失败。")
     return destination

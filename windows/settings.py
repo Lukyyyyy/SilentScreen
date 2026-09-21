@@ -16,8 +16,7 @@ class AppSettings:
     hotkey: str
     save_dir: str
     region_capture_enabled: bool = True
-    image_format: str = "png"
-    filename_pattern: str = "Screenshot_%Y%m%d_%H%M%S_%f.png"
+    filename_pattern: str = "Screenshot_%Y%m%d_%H%M%S_%f.jpg"
     monitor_mode: str = "primary"
 
 
@@ -74,7 +73,6 @@ def load_settings() -> AppSettings:
             region_capture_enabled=bool(
                 data.get("region_capture_enabled", defaults.region_capture_enabled)
             ),
-            image_format=str(data.get("image_format", defaults.image_format)).lower(),
             filename_pattern=str(data.get("filename_pattern", defaults.filename_pattern)),
             monitor_mode=str(data.get("monitor_mode", defaults.monitor_mode)),
         )

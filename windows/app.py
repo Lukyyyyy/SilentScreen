@@ -160,7 +160,6 @@ class SilentScreenApp:
         if new_settings is None:
             return
 
-        new_settings.image_format = self.settings.image_format
         new_settings.filename_pattern = self.settings.filename_pattern
         new_settings.monitor_mode = self.settings.monitor_mode
 

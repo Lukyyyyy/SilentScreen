@@ -15,7 +15,7 @@ APP_NAME = "SilentScreen"
 class AppSettings:
     hotkey: str
     save_dir: str
-    filename_pattern: str = "Screenshot_%Y%m%d_%H%M%S_%f.png"
+    filename_pattern: str = "Screenshot_%Y%m%d_%H%M%S_%f.jpg"
 
 
 def _app_support_dir() -> Path:

@@ -53,7 +53,7 @@ app = BUNDLE(
         'NSPrincipalClass': 'NSApplication',
         'CFBundleName': 'SilentScreen',
         'CFBundleDisplayName': 'Silent Screen',
-        'CFBundleShortVersionString': '1.0.2',
-        'CFBundleVersion': '1.0.2',
+        'CFBundleShortVersionString': '1.0.3',
+        'CFBundleVersion': '1.0.3',
     },
 )

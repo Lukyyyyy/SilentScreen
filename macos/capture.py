@@ -33,7 +33,7 @@ def capture_and_save(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     filename = datetime.now().strftime(filename_pattern)
-    destination = output_dir / filename
+    destination = (output_dir / filename).with_suffix(".jpg")
     if destination.exists():
         destination = output_dir / (
             f"{destination.stem}_{datetime.now().strftime('%f')}{destination.suffix}"
@@ -41,9 +41,9 @@ def capture_and_save(
 
     # 系统截图工具负责窗口合成；不再使用 mss 的旧 CGWindowListCreateImage 接口。
     with tempfile.TemporaryDirectory(dir=output_dir, prefix=".capture-") as temp_dir:
-        temporary = Path(temp_dir) / "screen.png"
+        temporary = Path(temp_dir) / "screen.jpg"
         result = subprocess.run(
-            ["/usr/sbin/screencapture", "-x", "-R" + ",".join(map(str, screen_rect)), "-t", "png", str(temporary)],
+            ["/usr/sbin/screencapture", "-x", "-R" + ",".join(map(str, screen_rect)), "-t", "jpg", str(temporary)],
             capture_output=True,
             text=True,
             timeout=30,
