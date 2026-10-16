@@ -15,7 +15,9 @@ APP_NAME = "SilentScreen"
 class AppSettings:
     hotkey: str
     save_dir: str
-    region_capture_enabled: bool = True
+    hotkey_enabled: bool = True
+    mouse_capture_enabled: bool = False
+    mouse_hold_seconds: float = 1.0
     filename_pattern: str = "Screenshot_%Y%m%d_%H%M%S_%f.jpg"
     monitor_mode: str = "primary"
 
@@ -67,12 +69,18 @@ def load_settings() -> AppSettings:
         if not isinstance(data, dict):
             raise ValueError("配置文件内容必须是 JSON 对象。")
         defaults = default_settings()
+        mouse_hold_seconds = data.get("mouse_hold_seconds", defaults.mouse_hold_seconds)
+        if (
+            type(mouse_hold_seconds) not in (int, float)
+            or not 0.1 <= mouse_hold_seconds <= 3600
+        ):
+            mouse_hold_seconds = defaults.mouse_hold_seconds
         return AppSettings(
             hotkey=str(data.get("hotkey", defaults.hotkey)),
             save_dir=str(data.get("save_dir", defaults.save_dir)),
-            region_capture_enabled=bool(
-                data.get("region_capture_enabled", defaults.region_capture_enabled)
-            ),
+            hotkey_enabled=data.get("hotkey_enabled", True) is True,
+            mouse_capture_enabled=data.get("mouse_capture_enabled", False) is True,
+            mouse_hold_seconds=mouse_hold_seconds,
             filename_pattern=str(data.get("filename_pattern", defaults.filename_pattern)),
             monitor_mode=str(data.get("monitor_mode", defaults.monitor_mode)),
         )

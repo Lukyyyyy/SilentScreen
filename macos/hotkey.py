@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import time
 from dataclasses import dataclass
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 
 class HotkeyError(RuntimeError):
@@ -321,3 +322,54 @@ class GlobalHotkeyManager(QObject):
             if handle is not None:
                 self.activated.emit(handle.hotkey_str)
         return 0
+
+
+_core_graphics = ctypes.CDLL(
+    "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
+)
+_core_graphics.CGEventSourceButtonState.argtypes = [ctypes.c_int32, ctypes.c_uint32]
+_core_graphics.CGEventSourceButtonState.restype = ctypes.c_bool
+
+
+class GlobalMouseCaptureManager(QObject):
+    activated = Signal(str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._hold_seconds = 1.0
+        self._timer = QTimer(self)
+        self._timer.setInterval(50)
+        self._timer.timeout.connect(self._poll_mouse_state)
+        self._press_started_at: float | None = None
+        self._was_pressed = False
+
+    def start(self, hold_seconds: float) -> None:
+        self.cleanup()
+        self._hold_seconds = hold_seconds
+        # 启用时已按住的左键需先松开，避免保存设置后立即误截。
+        self._was_pressed = self._is_pressed()
+        self._timer.start()
+
+    def cleanup(self) -> None:
+        self._timer.stop()
+        self._press_started_at = None
+        self._was_pressed = False
+
+    def _is_pressed(self) -> bool:
+        return _core_graphics.CGEventSourceButtonState(0, 0)  # 当前会话、鼠标左键
+
+    def _poll_mouse_state(self) -> None:
+        is_pressed = self._is_pressed()
+        now = time.monotonic()
+        if is_pressed and not self._was_pressed:
+            self._press_started_at = now
+        elif not is_pressed:
+            self._press_started_at = None
+        self._was_pressed = is_pressed
+        if (
+            self._press_started_at is not None
+            and now - self._press_started_at >= self._hold_seconds
+        ):
+            # 清除计时后再发信号，每次长按只截一次。
+            self._press_started_at = None
+            self.activated.emit("mouse-left-hold")

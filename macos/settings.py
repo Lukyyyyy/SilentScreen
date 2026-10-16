@@ -15,6 +15,9 @@ APP_NAME = "SilentScreen"
 class AppSettings:
     hotkey: str
     save_dir: str
+    hotkey_enabled: bool = True
+    mouse_capture_enabled: bool = False
+    mouse_hold_seconds: float = 1.0
     filename_pattern: str = "Screenshot_%Y%m%d_%H%M%S_%f.jpg"
 
 
@@ -74,9 +77,18 @@ def load_settings() -> AppSettings:
         save_settings(defaults)
         return defaults
 
+    mouse_hold_seconds = data.get("mouse_hold_seconds", defaults.mouse_hold_seconds)
+    if (
+        type(mouse_hold_seconds) not in (int, float)
+        or not 0.1 <= mouse_hold_seconds <= 3600
+    ):
+        mouse_hold_seconds = defaults.mouse_hold_seconds
     return AppSettings(
         hotkey=str(data.get("hotkey", defaults.hotkey)),
         save_dir=str(data.get("save_dir", defaults.save_dir)),
+        hotkey_enabled=data.get("hotkey_enabled", True) is True,
+        mouse_capture_enabled=data.get("mouse_capture_enabled", False) is True,
+        mouse_hold_seconds=mouse_hold_seconds,
         filename_pattern=str(data.get("filename_pattern", defaults.filename_pattern)),
     )
 

@@ -7,6 +7,7 @@ from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -37,8 +38,20 @@ class SettingsDialog(QDialog):
 
         self._hotkey_edit = QKeySequenceEdit(QKeySequence(settings.hotkey))
         self._path_edit = QLineEdit(settings.save_dir)
-        self._region_capture_checkbox = QCheckBox("启用区域截图（两次长按鼠标左键）")
-        self._region_capture_checkbox.setChecked(settings.region_capture_enabled)
+        self._hotkey_checkbox = QCheckBox("启用快捷键截屏")
+        self._hotkey_checkbox.setChecked(settings.hotkey_enabled)
+        self._hotkey_edit.setEnabled(settings.hotkey_enabled)
+        self._hotkey_checkbox.toggled.connect(self._hotkey_edit.setEnabled)
+        self._mouse_checkbox = QCheckBox("启用鼠标左键长按截屏")
+        self._mouse_checkbox.setChecked(settings.mouse_capture_enabled)
+        self._hold_seconds = QDoubleSpinBox()
+        self._hold_seconds.setRange(0.1, 3600)
+        self._hold_seconds.setDecimals(2)
+        self._hold_seconds.setSingleStep(0.1)
+        self._hold_seconds.setSuffix(" 秒")
+        self._hold_seconds.setValue(settings.mouse_hold_seconds)
+        self._hold_seconds.setEnabled(settings.mouse_capture_enabled)
+        self._mouse_checkbox.toggled.connect(self._hold_seconds.setEnabled)
         self._status_label = QLabel("\n".join(issues) if issues else "运行正常")
         self._status_label.setWordWrap(True)
         self._result: AppSettings | None = None
@@ -52,9 +65,12 @@ class SettingsDialog(QDialog):
 
         form = QFormLayout()
         form.addRow("运行状态", self._status_label)
+        form.addRow("快捷键截屏", self._hotkey_checkbox)
         form.addRow("快捷键", self._hotkey_edit)
+        form.addRow("鼠标截屏", self._mouse_checkbox)
+        form.addRow("长按时长", self._hold_seconds)
+        form.addRow("", QLabel("达到时长自动截屏，每次按住只截一次；长按也会影响当前应用。"))
         form.addRow("保存路径", path_row)
-        form.addRow("区域截图", self._region_capture_checkbox)
 
         save_button = QPushButton("保存")
         save_button.clicked.connect(self._save)
@@ -87,12 +103,13 @@ class SettingsDialog(QDialog):
     def _save(self) -> None:
         hotkey = self._hotkey_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
         hotkey = hotkey.replace("Meta", "Win")
-        if not hotkey:
+        if self._hotkey_checkbox.isChecked() and not hotkey:
             self._show_error("请先设置截图快捷键。")
             return
 
         try:
-            parse_hotkey(hotkey)
+            if self._hotkey_checkbox.isChecked():
+                parse_hotkey(hotkey)
             save_dir = ensure_writable_directory(self._path_edit.text().strip())
         except (HotkeyError, ValueError) as exc:
             self._show_error(str(exc))
@@ -101,7 +118,9 @@ class SettingsDialog(QDialog):
         self._result = AppSettings(
             hotkey=hotkey,
             save_dir=str(save_dir),
-            region_capture_enabled=self._region_capture_checkbox.isChecked(),
+            hotkey_enabled=self._hotkey_checkbox.isChecked(),
+            mouse_capture_enabled=self._mouse_checkbox.isChecked(),
+            mouse_hold_seconds=self._hold_seconds.value(),
         )
         self.accept()
 

@@ -22,10 +22,6 @@ class HotkeyError(RuntimeError):
     pass
 
 
-class MouseSelectionError(RuntimeError):
-    pass
-
-
 @dataclass(slots=True, frozen=True)
 class HotkeyHandle:
     hotkey_id: int
@@ -186,87 +182,45 @@ class GlobalHotkeyManager(QObject):
             self.activated.emit(self._current.hotkey_str)
 
 
-class GlobalMouseSelectionManager(QObject):
-    first_point_selected = Signal(int, int)
-    region_selected = Signal(int, int, int, int)
-    selection_reset = Signal(str)
+class GlobalMouseCaptureManager(QObject):
+    activated = Signal(str)
 
-    def __init__(
-        self,
-        hold_threshold_seconds: float = 2.0,
-        selection_timeout_seconds: float = 2.0,
-    ) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self._hold_threshold_seconds = hold_threshold_seconds
-        self._selection_timeout_seconds = selection_timeout_seconds
+        self._hold_seconds = 1.0
         self._timer = QTimer(self)
         self._timer.setInterval(50)
         self._timer.timeout.connect(self._poll_mouse_state)
         self._press_started_at: float | None = None
-        self._first_point: tuple[int, int] | None = None
-        self._first_point_recorded_at: float | None = None
         self._was_pressed = False
 
-    def start(self) -> None:
-        if self._timer.isActive():
-            return
+    def start(self, hold_seconds: float) -> None:
+        self.cleanup()
+        self._hold_seconds = hold_seconds
+        # 启用时已按住的左键需先松开，避免保存设置后立即误截。
+        self._was_pressed = self._is_pressed()
         self._timer.start()
 
     def cleanup(self) -> None:
         self._timer.stop()
         self._press_started_at = None
         self._was_pressed = False
-        self._clear_selection()
+
+    def _is_pressed(self) -> bool:
+        return bool(user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000)
 
     def _poll_mouse_state(self) -> None:
-        is_pressed = bool(user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000)
-        if is_pressed and not self._was_pressed:
-            self._press_started_at = time.monotonic()
-        elif not is_pressed and self._was_pressed:
-            self._finish_press()
-        self._was_pressed = is_pressed
-
-    def _finish_press(self) -> None:
-        if self._press_started_at is None:
-            return
-        press_started_at = self._press_started_at
-        press_duration = time.monotonic() - press_started_at
-        self._press_started_at = None
-        if press_duration < self._hold_threshold_seconds:
-            return
-
-        point = ctypes.wintypes.POINT()
-        if not user32.GetCursorPos(ctypes.byref(point)):
-            raise MouseSelectionError("无法获取鼠标位置。")
-        self._handle_qualified_press(int(point.x), int(point.y), press_started_at)
-
-    def _handle_qualified_press(self, x: int, y: int, press_started_at: float) -> None:
+        is_pressed = self._is_pressed()
         now = time.monotonic()
-        if self._first_point is None:
-            self._first_point = (x, y)
-            self._first_point_recorded_at = now
-            self.first_point_selected.emit(x, y)
-            return
-
-        if self._first_point_recorded_at is None:
-            self._clear_selection()
-            self._first_point = (x, y)
-            self._first_point_recorded_at = now
-            self.first_point_selected.emit(x, y)
-            return
-
-        if press_started_at - self._first_point_recorded_at > self._selection_timeout_seconds:
-            self._clear_selection()
-            self.selection_reset.emit("timeout")
-            self._first_point = (x, y)
-            self._first_point_recorded_at = now
-            self.first_point_selected.emit(x, y)
-            return
-
-        first_x, first_y = self._first_point
-        self.region_selected.emit(first_x, first_y, x, y)
-        self._clear_selection()
-
-    def _clear_selection(self) -> None:
-        self._first_point = None
-        self._first_point_recorded_at = None
+        if is_pressed and not self._was_pressed:
+            self._press_started_at = now
+        elif not is_pressed:
+            self._press_started_at = None
+        self._was_pressed = is_pressed
+        if (
+            self._press_started_at is not None
+            and now - self._press_started_at >= self._hold_seconds
+        ):
+            # 清除计时后再发信号，每次长按只截一次。
+            self._press_started_at = None
+            self.activated.emit("mouse-left-hold")

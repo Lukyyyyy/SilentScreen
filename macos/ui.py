@@ -5,7 +5,9 @@ from pathlib import Path
 
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -35,6 +37,20 @@ class SettingsDialog(QDialog):
 
         self._hotkey_edit = QKeySequenceEdit(QKeySequence(settings.hotkey))
         self._path_edit = QLineEdit(settings.save_dir)
+        self._hotkey_checkbox = QCheckBox("启用快捷键截屏")
+        self._hotkey_checkbox.setChecked(settings.hotkey_enabled)
+        self._hotkey_edit.setEnabled(settings.hotkey_enabled)
+        self._hotkey_checkbox.toggled.connect(self._hotkey_edit.setEnabled)
+        self._mouse_checkbox = QCheckBox("启用鼠标左键长按截屏")
+        self._mouse_checkbox.setChecked(settings.mouse_capture_enabled)
+        self._hold_seconds = QDoubleSpinBox()
+        self._hold_seconds.setRange(0.1, 3600)
+        self._hold_seconds.setDecimals(2)
+        self._hold_seconds.setSingleStep(0.1)
+        self._hold_seconds.setSuffix(" 秒")
+        self._hold_seconds.setValue(settings.mouse_hold_seconds)
+        self._hold_seconds.setEnabled(settings.mouse_capture_enabled)
+        self._mouse_checkbox.toggled.connect(self._hold_seconds.setEnabled)
         # macOS 26 + Qt 6.11 下 QLabel 开启 wordWrap 后在固定宽度对话框中
         # 中文会以错误字形渲染（已实测复现，显式指定字体也无法绕开），
         # 因此保持单行、由对话框自适应宽度。
@@ -52,7 +68,11 @@ class SettingsDialog(QDialog):
 
         form = QFormLayout()
         form.addRow("运行状态", self._status_label)
+        form.addRow("快捷键截屏", self._hotkey_checkbox)
         form.addRow("快捷键", self._hotkey_edit)
+        form.addRow("鼠标截屏", self._mouse_checkbox)
+        form.addRow("长按时长", self._hold_seconds)
+        form.addRow("", QLabel("达到时长自动截屏，每次按住只截一次；长按也会影响当前应用。"))
         form.addRow("保存路径", path_row)
         form.addRow("", self._hint)
 
@@ -86,12 +106,13 @@ class SettingsDialog(QDialog):
 
     def _save(self) -> None:
         hotkey = self._hotkey_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
-        if not hotkey:
+        if self._hotkey_checkbox.isChecked() and not hotkey:
             self._show_error("请先设置截图快捷键。")
             return
 
         try:
-            parse_hotkey(hotkey)
+            if self._hotkey_checkbox.isChecked():
+                parse_hotkey(hotkey)
             save_dir = ensure_writable_directory(self._path_edit.text().strip())
         except (HotkeyError, ValueError) as exc:
             self._show_error(str(exc))
@@ -100,6 +121,9 @@ class SettingsDialog(QDialog):
         self._result = AppSettings(
             hotkey=hotkey,
             save_dir=str(save_dir),
+            hotkey_enabled=self._hotkey_checkbox.isChecked(),
+            mouse_capture_enabled=self._mouse_checkbox.isChecked(),
+            mouse_hold_seconds=self._hold_seconds.value(),
         )
         self.accept()
 

@@ -9,8 +9,8 @@ from PySide6.QtCore import QSharedMemory
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from capture import capture_screen, capture_screen_region, cursor_screen_region, save_image
-from hotkey import GlobalHotkeyManager, GlobalMouseSelectionManager, HotkeyError, MouseSelectionError
+from capture import capture_screen, cursor_screen_region, save_image
+from hotkey import GlobalHotkeyManager, GlobalMouseCaptureManager, HotkeyError
 from settings import AppSettings, get_log_file, load_settings, save_settings
 from ui import SettingsDialog, TrayController
 
@@ -31,8 +31,8 @@ class SilentScreenApp:
 
         self.hotkeys = GlobalHotkeyManager(qt_app)
         self.hotkeys.activated.connect(self._capture_and_save)
-        self.mouse_selection = GlobalMouseSelectionManager()
-        self.mouse_selection.region_selected.connect(self._capture_region_and_save)
+        self.mouse_capture = GlobalMouseCaptureManager()
+        self.mouse_capture.activated.connect(self._capture_and_save)
 
         self.tray = TrayController(app_icon, qt_app)
         self.tray.settings_action.triggered.connect(self.open_settings)
@@ -44,8 +44,8 @@ class SilentScreenApp:
         self.logger.info("Application starting")
         self.tray.show()
         self._register_initial_hotkey()
-        if self.settings.region_capture_enabled:
-            self._start_mouse_selection()
+        if self.settings.mouse_capture_enabled:
+            self.mouse_capture.start(self.settings.mouse_hold_seconds)
 
     def _configure_logging(self) -> logging.Logger:
         logger = logging.getLogger("silent_screen")
@@ -64,6 +64,8 @@ class SilentScreenApp:
         return logger
 
     def _register_initial_hotkey(self) -> None:
+        if not self.settings.hotkey_enabled:
+            return
         try:
             handle = self.hotkeys.register_hotkey(self.settings.hotkey)
             self._clear_issue("hotkey")
@@ -74,15 +76,6 @@ class SilentScreenApp:
                 "hotkey",
                 f"快捷键注册失败：{exc} 请更换快捷键。",
             )
-
-    def _start_mouse_selection(self) -> None:
-        try:
-            self.mouse_selection.start()
-            self._clear_issue("mouse")
-            self.logger.info("Mouse selection listener started")
-        except MouseSelectionError as exc:
-            self.logger.exception("Failed to start mouse selection listener")
-            self._record_issue("mouse", f"鼠标监听启动失败：{exc}")
 
     def _record_issue(self, key: str, message: str) -> None:
         with self._issues_lock:
@@ -96,8 +89,8 @@ class SilentScreenApp:
         with self._issues_lock:
             return tuple(self._issues.values())
 
-    def _capture_and_save(self, hotkey_str: str) -> None:
-        self.logger.info("Hotkey triggered: %s", hotkey_str)
+    def _capture_and_save(self, trigger: str) -> None:
+        self.logger.info("Capture triggered: %s", trigger)
         try:
             region = cursor_screen_region()
         except RuntimeError as exc:
@@ -107,19 +100,6 @@ class SilentScreenApp:
         self._run_capture_job(
             job_name="fullscreen",
             capture_func=lambda: capture_screen(region),
-        )
-
-    def _capture_region_and_save(self, left: int, top: int, right: int, bottom: int) -> None:
-        self.logger.info(
-            "Mouse region triggered: (%s, %s) -> (%s, %s)",
-            left,
-            top,
-            right,
-            bottom,
-        )
-        self._run_capture_job(
-            job_name="region",
-            capture_func=lambda: capture_screen_region(left, top, right, bottom),
         )
 
     def _run_capture_job(self, job_name: str, capture_func) -> None:
@@ -153,44 +133,39 @@ class SilentScreenApp:
 
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self._issue_messages())
-        if dialog.exec() != SettingsDialog.DialogCode.Accepted:
-            return
-
-        new_settings = dialog.result_settings
-        if new_settings is None:
-            return
-
-        new_settings.filename_pattern = self.settings.filename_pattern
-        new_settings.monitor_mode = self.settings.monitor_mode
-
-        old_hotkey = self.settings.hotkey
+        # 设置期间暂停触发，也让快捷键输入框能收到当前组合键。
+        self.hotkeys.unregister_hotkey()
+        self.mouse_capture.cleanup()
         try:
-            if new_settings.hotkey != old_hotkey:
-                self.hotkeys.update_hotkey(new_settings.hotkey)
-                self._clear_issue("hotkey")
-                self.logger.info("Updated hotkey: %s -> %s", old_hotkey, new_settings.hotkey)
-        except HotkeyError as exc:
-            self.logger.exception("Failed to update hotkey")
-            self._record_issue("hotkey", f"更新快捷键失败：{exc}")
-            return
+            result = dialog.exec()
+            new_settings = dialog.result_settings
+            if result != SettingsDialog.DialogCode.Accepted or new_settings is None:
+                self._register_initial_hotkey()
+                return
 
-        region_capture_changed = (
-            new_settings.region_capture_enabled != self.settings.region_capture_enabled
-        )
-        self.settings = new_settings
-        if region_capture_changed:
-            if self.settings.region_capture_enabled:
-                self._start_mouse_selection()
-            else:
-                self.mouse_selection.cleanup()
-                self._clear_issue("mouse")
-        try:
-            save_settings(self.settings)
-            self._clear_issue("settings")
-        except OSError as exc:
-            self.logger.exception("Failed to save settings")
-            self._record_issue("settings", f"设置保存失败：{exc}")
-        self.logger.info("Settings updated: save_dir=%s", self.settings.save_dir)
+            new_settings.filename_pattern = self.settings.filename_pattern
+            new_settings.monitor_mode = self.settings.monitor_mode
+            try:
+                if new_settings.hotkey_enabled:
+                    self.hotkeys.register_hotkey(new_settings.hotkey)
+            except HotkeyError as exc:
+                self.logger.exception("Failed to update hotkey")
+                self._register_initial_hotkey()
+                self._record_issue("hotkey", f"更新快捷键失败：{exc}")
+                return
+
+            self._clear_issue("hotkey")
+            self.settings = new_settings
+            try:
+                save_settings(self.settings)
+                self._clear_issue("settings")
+            except OSError as exc:
+                self.logger.exception("Failed to save settings")
+                self._record_issue("settings", f"设置保存失败：{exc}")
+            self.logger.info("Settings updated: save_dir=%s", self.settings.save_dir)
+        finally:
+            if self.settings.mouse_capture_enabled:
+                self.mouse_capture.start(self.settings.mouse_hold_seconds)
 
     def open_save_dir(self) -> None:
         try:
@@ -209,7 +184,7 @@ class SilentScreenApp:
 
     def quit(self) -> None:
         self.logger.info("Application exiting")
-        self.mouse_selection.cleanup()
+        self.mouse_capture.cleanup()
         self.hotkeys.cleanup()
         self.tray.tray.hide()
         self.qt_app.quit()
