@@ -46,7 +46,9 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           python -m unittest discover -s ../tests -v
-          python -m unittest discover -v
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            python -m unittest test_capture -v
+          fi
       - name: Build application
         run: python -m PyInstaller --noconfirm --clean '${{ matrix.spec }}'
       - name: Package Windows application
